@@ -1,0 +1,69 @@
+name: Non-eng engineering approvals
+
+# Org-level ruleset workflow (lives in plurel-company/.github).
+#
+# If the PR author is an active member of the org team `engineering`, the
+# check passes. Bot-authored PRs (user type Bot) also pass. Everyone else
+# needs REQUIRED_ENG_APPROVALS distinct members of `engineering` to have
+# an APPROVED review on the current head SHA.
+#
+# Ruleset workflows only run on pull_request (opened, synchronize,
+# reopened), pull_request_target, and merge_group. Filters on those events
+# are ignored. pull_request_review is not supported, so this file does not
+# use it: after the required approvals are submitted, re-run this check or
+# push / update the branch / close and reopen the PR.
+#
+# The default GITHUB_TOKEN cannot read organization team membership, so
+# this job needs the org secret ORG_TEAM_READ_TOKEN (available to every
+# target repo): a GitHub App installation token or a fine-grained PAT with
+# organization Members: Read (classic: read:org). Do not log that token.
+# The job fails closed only when that secret or the engineering team is
+# missing.
+#
+# `if: true` is required so GitHub will run this workflow on pull_request
+# events in repositories other than this source repo. Checkout always
+# fetches this source repo; the default checkout would be the PR repo,
+# which does not contain the script.
+
+on:
+  pull_request:
+  merge_group:
+
+concurrency:
+  group: non-eng-engineering-approvals-${{ github.repository }}-${{ github.event.pull_request.number || github.event.merge_group.head_sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  non-eng-engineering-approvals:
+    name: Non-eng engineering approvals
+    if: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      ORG: plurel-company
+      ENGINEERING_TEAM: engineering
+      REQUIRED_ENG_APPROVALS: "2"
+      TEAM_TOKEN: ${{ secrets.ORG_TEAM_READ_TOKEN }}
+      AUTHOR: ${{ github.event.pull_request.user.login }}
+      AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+      REPO: ${{ github.repository }}
+      GITHUB_API_TOKEN: ${{ github.token }}
+    steps:
+      # Pinned to the same commit as plurel-app .github/workflows/ci.yml.
+      # Always check out the workflow source repo, not the PR repository.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: plurel-company/.github
+          ref: main
+          path: workflow-src
+          persist-credentials: false
+          sparse-checkout: .github/scripts/non-eng-engineering-approvals.py
+          sparse-checkout-cone-mode: false
+      - name: Require engineering approvals for non-engineering authors
+        run: python3 workflow-src/.github/scripts/non-eng-engineering-approvals.py
